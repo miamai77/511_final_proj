@@ -4,25 +4,52 @@ author: Mia Maines
 subtitle: Using R Regression Modeling
 date: today
 date-format: long
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
 # Introduction
 
-The Far Right’s broad resurgence is probably one of the most noteworthy trends in the 21st century’s global political landscape, and additionally politicians representing this shift to the right have gained prominence in not only the US, but in states such as Brazil, India, Russia, Turkey, Hungary, Italy, and Japan. It remains increasingly clear that this trend may be semi-permanent, with over a decade of increasing support for such movements among individuals of all walks of life. “Right wing authoritarianism” is a term not only describing a political identity but a set of beliefs and morals potentially bridging the gap between political science and psychology. A “right wing authoritarianism” scale was developed by psychologist Bob Altemeyer in 1981, describing a set of tendencies that might make one more predispositioned to supporting a right-wing authoritarian leader. These tendencies include high levels of submission to established authorities, willingness to engage in retaliatory actions to protect such authorities, and high degrees of conventionalism and traditionalism, whatever that may be in one’s culture. I will attempt to map such values in the United States, and the county-by-county spatial variance between them. I will take state-by-state or metro-by-metro survey data corresponding with right-wing authoritarian tendencies as defined by Altemeyer, and use a regression model to predict what socioeconomic traits could suggest right-wing authoritarianism in geographic regions.
+The Far Right’s broad resurgence is probably one of the most noteworthy
+trends in the 21st century’s global political landscape, and
+additionally politicians representing this shift to the right have
+gained prominence in not only the US, but in states such as Brazil,
+India, Russia, Turkey, Hungary, Italy, and Japan. It remains
+increasingly clear that this trend may be semi-permanent, with over a
+decade of increasing support for such movements among individuals of all
+walks of life.
 
-Perhaps class is a primary predictor of RWA, or urban-rural location, or perhaps Pentecostalism. Modeling RWA by county will allow me to see the factors that correlate the most. 
+“Right wing authoritarianism” is a term not only describing a political
+identity but a set of beliefs and morals potentially bridging the gap
+between political science and psychology. A “right wing
+authoritarianism” scale was developed by psychologist Bob Altemeyer in
+1981, describing a set of tendencies that might make one more
+predispositioned to supporting a right-wing authoritarian leader. These
+tendencies include high levels of submission to established authorities,
+willingness to engage in retaliatory actions to protect such
+authorities, and high degrees of conventionalism and traditionalism,
+whatever that may be in one’s culture (Altemeyer, 2006). I will attempt
+to map such values in the United States, and the county-by-county
+spatial variance between them. I will take state-by-state or
+metro-by-metro survey data corresponding with right-wing authoritarian
+tendencies as defined by Altemeyer, and use a regression model to
+predict what socioeconomic traits could suggest right-wing
+authoritarianism in geographic regions.
 
-# Materials and methods
+Perhaps class is a primary predictor of RWA, or urban-rural location, or
+perhaps Evangelical Christianity. Modeling RWA by county will allow me
+to see the factors that correlate the most.
 
-Firstly, I gathered, clean, and process socioeconomic data (education, income, race, age, and urban/rural) from the census bureau. 
+# Data, Materials, and Methods
+Firstly, I gathered, cleaned, and process socioeconomic data (education,
+income, race, age, and urban/rural) from the census bureau.
 
-I also gathered religion information from the US Religion Census, because I hypothesize that religion could be an additional factor that would explain Right Wing Authoritarianism well.
+I use state-level demographic and religion data as training data, using
+a random forest regression to find the factors that correlate the most
+with Right-Wing Authoritarianism.
 
-Then, considering the three major aspects of Right Wing Authoritarianism from Altemeyer, I examined survey data from the PRRI's American Values Survey and the Pew Research Center. If survey questions closely matched Altemeyer's definitions, I used them.
-
-It was important that survey data was differentiated on the state level or on some other demographic level (e.g. dividing by income level, race, religion).
-
-I use state-level demographic and religion data as training data, using a generalized linear regression to find the factors that correlate the most with Right-Wing Authoritarianism.
+## Loading necessary packages
 
 ```{r, message=F, warning=F, results='hide', echo=FALSE}
 install.packages("tidyverse")
@@ -42,6 +69,8 @@ install.packages("tidycensus")
 install.packages("dplyr")
 install.packages("caret")
 install.packages("randomForest")
+install.packages("purrr")
+install.packages("stats")
 library(tidyverse)
 library(leaflet)
 library(kableExtra)
@@ -59,40 +88,68 @@ library(tidycensus)
 library(dplyr)
 library(caret)
 library(randomForest)
+library(purrr)
+library(stats)
 ```
 
-# Setting up Parallel Cores for Processing Large Datasets
+## Setting up Parallel Cores for Processing Large Datasets
 
 ```{r}
 num_cores <- parallel::detectCores() - 1
 registerDoParallel(num_cores)
 ```
 
-# Loading and Processing Data
+## Loading Census Data
 
-I gathered various demographic information from the US Census Bureau API
+I gathered various demographic information from the US Census Bureau
+API.
 
-I began by downloading information on race, education, income, poverty, age, and urban/rural status for all counties in the United States. I used the 2021 American Community survey for all topics except urban/rural status, for which only 2020 Decennial was available. Connecticut recently changed its counties into "planning regions" so there is discontinuity from 2022 onward that will hinder joining to religion data later on. So 2021 has the most recent available data that preserves Connecticut's old county boundaries.
+I began by downloading information on race, education, income, poverty,
+age, and urban/rural status for all counties in the United States. I
+used the 2021 American Community survey for all topics except
+urban/rural status, for which only 2020 Decennial was available.
+Connecticut recently changed its counties into "planning regions" so
+there is discontinuity from 2022 onward that will hinder joining to
+religion data later on. So 2021 has the most recent available data that
+preserves Connecticut's old county boundaries.
 
-The Census Bureau API only allows us to download a limited subset of the 2020 Decennial Census online. This does not include urban popuation, for which ACS information is also not available.
+The Census Bureau API only allows us to download a limited subset of the
+2020 Decennial Census online. This does not include urban population,
+for which ACS information is also not available.
 
-So, for information on urban population, I had to download it manually from NHGIS and import it. 
+So, for information on urban population, I had to download it manually
+from NHGIS and import it.
 
 The following tables were downloaded:
 
 -   B01001: Age by Sex (2017-2021 ACS)
 -   B01002: Median Age by Sex (2019-2023 ACS)
 -   B03002: Hispanic or Latino Origin by Race (2019-2023 ACS)
--   B15003: Educational Attainment for the Population 25 and Older (2019-2023 ACS)
--   B19001: Median Household Income in the Past 12 Months (2019-2023 ACS)
+-   B15003: Educational Attainment for the Population 25 and Older
+    (2019-2023 ACS)
+-   B19001: Median Household Income in the Past 12 Months (2019-2023
+    ACS)
 -   P2: Urban and Rural (2020 Decennial Census)
 
-The goal is to convert raw values into percentages, and to convert granular data into larger categories I had to convert them all into proportions of the total population. Final column values are to represent:
--   Total median age
--   Percentage of total population that is White, Black, Asian, Native American, Pacific Islander, Other Race, Multiracial, and Hispanic
--   Percentage of those 25 and older who have: received no schooling, been educated up to middle school, high school but no diploma, high school diploma, associate's degree, bachelor's degree, post-bachelor's degree
--   Percentage of households with incomes: Below 15K, 15-30K, 30-60K, 60-100K, 100-150K, 150-200K, and Over 200K
--   Percentage of the population in urbanized areas
+The goal is to convert raw values into percentages, and to convert
+granular data into larger categories I had to convert them all into
+proportions of the total population. Final column values are to
+represent:
+
+\- Total median age
+
+\- Percentage of total population that is White, Black, Asian, Native
+American, Pacific Islander, Other Race, Multiracial, and Hispanic
+
+\- Percentage of those 25 and older who have: received no schooling,
+been educated up to middle school, high school but no diploma, high
+school diploma, associate's degree, bachelor's degree, post-bachelor's
+degree
+
+\- Percentage of households with incomes: Below 15K, 15-30K, 30-60K,
+60-100K, 100-150K, 150-200K, and Over 200K
+
+\- Percentage of the population in urbanized areas
 
 ```{r, message=F, warning=F, eval=TRUE, results='hide'}
 #Getting a census API key to download census data
@@ -183,7 +240,7 @@ acs_age <- get_acs(geography="county", variables=age_sex_factors, year=2021, out
 #Loading in the urban area information separately
 urban <- read_csv("data/nhgis_urban_rural.csv") %>%
   mutate(urban = U7I002/U7I001) %>%
-  dplyr::select(urban, GEOCODE)
+  dplyr::select(urban, GEOCODE, CBSAA)
 
 #Getting geometries for counties
 county_geoms <- counties(cb = TRUE, year=2021)
@@ -198,11 +255,21 @@ total_demographic <- total_demographic %>%
   mutate(FIPS = as.numeric(GEOID))
 ```
 
-The US Religion Census is an organization that tracks religious affiliation across the country. They perform an exhaustive census of every religious organization in the United States to get detailed affiliation data.
+## Loading Religion Data
 
-There is an API available through OSF in order to download this data, but as of writing the first draft, it appears to be broken. I cannot seem to be able to create an OSF account currently. I do plan on using the API in my final project, but as of now we will just have to make do.
+I also gathered religion information from the US Religion Census,
+because I hypothesized that religion could be an additional factor that
+would explain Right Wing Authoritarianism well.
 
-Since the religion census lists affiliation with every single religious organization in the country, the file is very large. I cannot load it directly into the data folder, so I created an abridged version in excel with only the sects I intended on analyzing. These include:
+The US Religion Census is an organization that tracks religious
+affiliation across the country. They perform an exhaustive census of
+every religious organization in the United States to get detailed
+affiliation data.
+
+Since the religion census lists affiliation with every single religious
+organization in the country, the file is very large. I cannot load it
+directly into the data folder, so I created an abridged version in excel
+with only the sects I intended on analyzing. These include:
 
 -   Total Adherence Rate of All Religious Organizations (TOT)
 -   Evangelical Protestant (EVAN)
@@ -211,14 +278,21 @@ Since the religion census lists affiliation with every single religious organiza
 -   Catholic (CATH)
 -   Orthodox Christian (ORTH)
 -   Mormonism/Latter Day Saints (LDS)
--   Judaism (CJUD - Conservative, IJUD - Independent, OJUD - Orthodox, RJUD - Reconstructionist, RFRM - Reform)
+-   Judaism (CJUD - Conservative, IJUD - Independent, OJUD - Orthodox,
+    RJUD - Reconstructionist, RFRM - Reform)
 -   Islam (MSLM)
 -   Hinduism (HINT)
 -   Buddhism (MAHBUD - Mahayana, THBUD - Theravada, VAJBUD - Vajarayana)
 
-The Religion Census finds total adherence rates for Christian denominations (e.g. Evangelical Protestant is not a single organization but rather many with similar characteristics)
+The Religion Census finds total adherence rates for Christian
+denominations (e.g. Evangelical Protestant is not a single organization
+but rather many with similar characteristics)
 
-For smaller religions (Mormonism, Judaism, Islam, Hinduism, Buddhism), I had to manually search through the hundreds of congregations to find these specific groups. There are separate columns for Jewish and Buddhist denominations, but I am combining them, as they are quite small religions.
+For smaller religions (Mormonism, Judaism, Islam, Hinduism, Buddhism), I
+had to manually search through the hundreds of congregations to find
+these specific groups. There are separate columns for Jewish and
+Buddhist denominations, but I am combining them, as they are quite small
+religions.
 
 ```{r}
 #Loading the religion data, removing NA values, and creating new columns for Judaism and Buddhism
@@ -232,19 +306,21 @@ religion2020 <- religion2020 |>
            THBUDRATE_2020 + VAJBUDRATE_2020)
 ```
 
-I also process the religion data by taking NA adherence rate values and converting them to 0.
-In these cases, it means that there is a negligent amount of congregations of a given sect in a given county, and thus there are not a significant number of adherents.
+I also process the religion data by taking NA adherence rate values and
+converting them to 0. In these cases, it means that there is a negligent
+amount of congregations of a given sect in a given county, and thus
+there are not a significant number of adherents.
 
 ```{r}
 #Joining US Census Bureau and Religion Census Data
 total_demographic <- left_join(total_demographic, religion2020, by=join_by(FIPS==FIPS))
 ```
 
-So, now I have my demographic baseline data. My next step is to gather survey data from Pew and the PRRI, and predict right wing authoritarianism by county based on these variables.
-
-I created a few maps of different religious affiliations, so we can get a sense of their unique distributions in the US. 
-
-It appears that there are many outliers in religious adherence values, with some being suspiciously high, even higher than county populations. This may pose problems for modeling Right Wing Authoritarianism.  I will confine values to be within a certain number of z-scores from the mean of all counties.
+It appears that there are many outliers in religious adherence values,
+with some being suspiciously high, even higher than county populations.
+This may pose problems for modeling Right Wing Authoritarianism. I will
+confine values to be within a certain number of z-scores from the mean
+of all counties.
 
 ```{r}
 #Puerto Rico and Guam's county-equivalents are all NA due to the Religion Census not having data for them. So we must remove NA entries. 
@@ -266,8 +342,14 @@ total_demographic <- total_demographic %>%
   )
 ```
 
+The survey data I used was differentiated on the state and metro area
+level
 
-# Loading State- and Metro- Level Socioeconomic Data for Model Training
+Because such it was differentiated on this level, it is important to
+load state and metro level census and religion information to train the
+model.
+
+## Loading State- and Metro- Level Socioeconomic Data for Model Training
 
 ```{r, message=F, warning=F, results='hide'}
 #Using the same functions used on the county level to extract the same census data for states
@@ -341,46 +423,305 @@ state_religion <- st_transform(state_religion, 4269)
 state_demographic <- left_join(state_demographic, state_religion, by=join_by(NAME==STATE_NAME))
 
 ```
-# Loading Pew and PRRI Polling Data
-Survey Questions Chosen:
--   PRRI: "Is society becoming too feminine?" (2024)
--   PRRI: "Is political violence ever justified?" (2024)
--   Pew: Are there absolute morals? (2024)
--
+
+After gathering state demographic data, I did the same thing with metro
+areas
+
+```{r, message=F, warning=F, results='hide'}
+acs_race_metro <- get_acs(geography="metropolitan statistical area/micropolitan statistical area", variables=acs_racefactors, year=2021, output="wide") %>%
+  mutate(white = total_whiteE/total_popE, black=total_blackE/total_popE,
+         indigenous = total_indigE/total_popE, asian = total_asianE/total_popE,
+         pacific = total_piE/total_popE, mixed = total_mixedE/total_popE, 
+         hispanic = total_hispanicE/total_popE, total_pop=total_popE) %>%
+  dplyr::select(GEOID, NAME, white, black, indigenous, asian, pacific, mixed, hispanic) 
+
+acs_edu_metro <- get_acs(geography="metropolitan statistical area/micropolitan statistical area", variables=educ_factors, year=2021, output="wide") %>%
+  mutate(no_school = no_schoolE/total_25E, under_hs = (pre_kE + kindergartenE + g1E + g2E + g3E + g4E + g5E + g6E + g7E + g8E)/total_25E, hs_nodiploma = (g9E + g10E + g11E + g12E)/total_25E, hs = (hs_diplomE + gedE)/total_25E, somecollege = (u_1yE + u_ndE + assocE)/total_25E, bachelor = bachelorE/total_25E, postbachelor = (masterE + prof_scE + phdE)/total_25E) %>%
+  dplyr::select(GEOID, NAME, no_school, under_hs, hs_nodiploma, hs, somecollege, bachelor, postbachelor)
+
+acs_income_metro <- get_acs(geography="metropolitan statistical area/micropolitan statistical area", variables=income_factors, year=2021, output="wide") %>%
+  mutate(u15k = (u10kE + u15kE)/householdsE, u30k = (u20kE + u25kE + u30kE)/householdsE, u60k = (u35kE + u40kE + u45kE + u50kE + u60kE)/householdsE, u100k = (u75kE + u100kE)/householdsE, u150k = (u125kE + u150kE)/householdsE, u200k = (u200kE/householdsE), o200k = o200kE/householdsE) %>%
+  dplyr::select(GEOID, NAME, u15k, u30k, u60k, u100k, u150k, u200k, o200k)
+
+acs_age_metro <- get_acs(geography="metropolitan statistical area/micropolitan statistical area", variables=age_sex_factors, year=2021, output="wide") %>%
+  mutate(age_u18 = (B01001_003E + B01001_004E + B01001_005E + B01001_006E + 
+           B01001_027E + B01001_028E + B01001_029E + B01001_030E)/B03002_001E,
+         age18_34 = (B01001_007E + B01001_008E + B01001_009E + B01001_010E +
+           B01001_011E + B01001_012E + B01001_031E + B01001_032E + B01001_033E +
+           B01001_034E + B01001_035E + B01001_036E)/B03002_001E,
+         age_35_49 = (B01001_013E + B01001_014E + B01001_015E + B01001_037E +
+           B01001_038E + B01001_039E)/B03002_001E,
+         age_50_64 = (B01001_016E + B01001_017E + B01001_018E + B01001_019E +
+           B01001_040E + B01001_041E + B01001_042E + B01001_043E)/B03002_001E,
+         age_o65 = (B01001_020E + B01001_021E + B01001_022E + B01001_023E +
+           B01001_024E + B01001_025E + B01001_044E + B01001_045E + B01001_046E +
+           B01001_047E + B01001_048E)/B03002_001E,
+         median_age = B01002_001E, total_pop = B03002_001E
+         ) %>%
+  dplyr::select(GEOID, NAME, age_u18, age18_34, age_35_49, age_50_64, age_o65, median_age, total_pop)
+
+urban_metro <- read_csv("data/metro_urban.csv") %>%
+  mutate(urban = U7I002/U7I001) %>%
+  dplyr::select(urban, GEOCODE)
+
+cbsa <- core_based_statistical_areas(cb=TRUE, year=2021)
+
+metro_demographic <- left_join(acs_race_metro, acs_edu_metro, by=join_by("GEOID"=="GEOID", "NAME"=="NAME")) %>%
+  left_join(., acs_income_metro, by=join_by("GEOID"=="GEOID", "NAME"=="NAME")) %>%
+  left_join(., acs_age_metro, by=join_by("GEOID"=="GEOID", "NAME"=="NAME"))
+metro_demographic$GEOID <- as.numeric(metro_demographic$GEOID)
+metro_demographic <- left_join(metro_demographic, urban_metro, by=join_by("GEOID"=="GEOCODE"))
+
+#The CBSAA column is a referential column used by NHGIS in their county level data sets. It is just the metropolitan area geocode. If a county is in a metropolitan area, its CBSAA is the same as the metro GEOID. If not, it is given the value 99999.
+metro_religion <- total_demographic %>%
+  group_by(CBSAA) %>%
+  summarize(pop = sum(total_pop),
+            EVANRATE_2020 = sum(EVANRATE_2020*total_pop)/sum(total_pop),
+            TOTRATE_2020 = sum(TOTRATE_2020*total_pop)/sum(total_pop),
+            BPRTRATE_2020 = sum(BPRTRATE_2020*total_pop)/sum(total_pop),
+            MPRTRATE_2020 = sum(MPRTRATE_2020*total_pop)/sum(total_pop),
+            CATHRATE_2020 = sum(CATHRATE_2020*total_pop)/sum(total_pop),
+            ORTHRATE_2020 = sum(ORTHRATE_2020*total_pop)/sum(total_pop),
+            LDSRATE_2020 = sum(LDSRATE_2020*total_pop)/sum(total_pop),
+            MSLMRATE_2020 = sum(MSLMRATE_2020*total_pop)/sum(total_pop),
+            HINTRATE_2020 = sum(HINTRATE_2020*total_pop)/sum(total_pop),
+            TOTJUDRATE_2020 = sum(TOTJUDRATE_2020*total_pop)/sum(total_pop),
+            TOTBUDRATE_2020 = sum(TOTBUDRATE_2020*total_pop)/sum(total_pop)) %>%
+  dplyr::select(CBSAA, pop, EVANRATE_2020,TOTRATE_2020, BPRTRATE_2020, MPRTRATE_2020, CATHRATE_2020, ORTHRATE_2020, LDSRATE_2020, MSLMRATE_2020, HINTRATE_2020, TOTJUDRATE_2020, TOTBUDRATE_2020)
+
+metro_religion <- st_transform(metro_religion, 4269)
+
+metro_demographic <- left_join(metro_demographic, metro_religion, by=join_by(GEOID==CBSAA))
+```
+
+## Loading Pew and PRRI Polling Data
+
+From the Pew Research Center's American Values Survey and the Public
+Religion Research Institute's Religious Landscape Survey, there were
+four survey questions chosen as proxies to estimate right wing
+authoritarianism. As an abstract value, "right wing authoritarianism" in
+itself is a difficult metric to quantify, so I examined Altemeyer's work
+to see which survey questions most closely aligned with right-wing
+authoritarian sentiments.
+
+Questions used:
+
+-   “Do you agree or disagree: "Society as a whole has become too soft
+    and feminine?"” (PRRI, 2024)
+
+This mirrors Altemeyer's definition of high authoritarianism and
+conventionalism, with Right Wing Authoritarians having a high propensity
+to believe in traditional gender roles, including women's subservience
+to men (p.177). Agreeing to this question would indicate that one
+believes in a "stronger" society that is more masculine and less "soft."
+This question is also vague enough that it could correlate with
+anti-feminist and anti-LGBT sentiments, both of which are seen as
+pushing society in the "wrong" direction (p. 202).
+
+-   ***“Do you agree or disagree: "Because things have gotten so far off track, true American patriots may have to resort to violence in order to save our country?"”*** (PRRI, 2024)
+
+This question mirrors one of the defining characteristics of right wing
+authoritarianism, high levels of aggression in the name of
+"established, legitimate authorities" (Altemeyer, p. 9).
+
+-   ***“Do you agree or disagree: "The immigrants entering the country illegally today are poisoning the blood of our country?"”*** (PRRI, 2024)
+
+While not in Altemeyer's original authoritarian scale, anti-immigration sentiments have been included in other, reduced right wing authoritarianism scale, correlating particularly well with RWA values for those in the USA and the UK (Bizumic and Duckitt, 2018).
+
+This could correlate with high conventionalism as well, as a foreign group of people entering could interfere with the prevalence of "conventional" ethnoreligious groups present in the US.
+
+-   ***"Are there clear standards for right and wrong?"*** (Pew Research Center, 2024)
+
+I suspect this to correlate with Altemeyer's characteristics that people with RWA tendencies lend support to established authorities and also with a high degree of conventionalism (p. 9). Both of these would lead to rigid moral codes.
+
 ```{r, message=F, warning=F}
+state_demographic$GEOID <- as.numeric(state_demographic$GEOID)
+
+#Loading survey data
 prri_femin <- read_csv("data/prri_femin.csv")
 prri_violence <- read_csv("data/prri_violence.csv")
+prri_immigration <- read_csv("data/prri_immigration.csv")
+pew_morality <- read_csv("data/pew_morality.csv")
+```
+
+## Model Training
+
+I used a Random Forest regression model with the R package caret to predict responses to these four questions. I was drawn to random forest because it continually selects random variables to split decision trees, thereby reducing overfitting (GeeksforGeeks.org), especially with a large dataset such as mine.
+```{r, message=F, warning=F}
+#Setting seed for replicability
+set.seed(92322)
+
+#Setting model parameters.
+grid <- expand.grid(mtry = c(1:10))
+fitControl <- trainControl(method="repeatedcv", number=10, repeats=25, savePredictions=TRUE, verboseIter=FALSE)
+
+#With each survey, I create one "margin" variable that represents the percent of population that agrees minus the percent of the population that disagrees. I remove NA values, as in each survey, some states and metro areas have no data.
 prri_femin <- prri_femin %>%
   mutate(FEMIN_MARGIN = FEMIN_AGREE - FEMIN_DISAGREE)
-state_demographic <- left_join(state_demographic, prri_femin, by=join_by("NAME" == "State"))
+survey_s <- prri_femin %>%
+  filter(METRO==0)
+survey_m <- prri_femin %>%
+  filter(METRO==1)
+model_input <- bind_rows(left_join(state_demographic, survey_s, by=join_by("NAME" == "State")), left_join(metro_demographic, survey_m, by=join_by(GEOID == IFMETRO_ID))) %>%
+  dplyr::select(-State, -IFMETRO_ID, -FIPS) %>%
+  na.omit()
+
+#Training the model for socioeconomic and religion variables
+model_femin <- train(FEMIN_MARGIN ~ white + black + indigenous + asian + pacific + mixed + hispanic + no_school + under_hs + hs_nodiploma + hs + somecollege + bachelor + postbachelor + u15k + u30k + u60k + u100k + u150k + u200k + o200k + median_age + urban + EVANRATE_2020 + TOTRATE_2020 + BPRTRATE_2020 + MPRTRATE_2020 + CATHRATE_2020 + ORTHRATE_2020 + LDSRATE_2020 + TOTJUDRATE_2020 + MSLMRATE_2020 + HINTRATE_2020 + TOTBUDRATE_2020, trControl=fitControl, method="rf", data=model_input, tuneGrid=grid)
+
 prri_violence <- prri_violence %>%
   mutate(VIOLENCE_MARGIN = AGREE_VIOLENCE - DISAGREE_VIOLENCE)
-state_demographic <- left_join(state_demographic, prri_violence, by=join_by("NAME" == "State"))
-state_dem_na_omit <- na.omit(state_demographic)
-set.seed(92322)
-fitControl <- trainControl(method="repeatedcv", number=15, repeats=100)
-model_femin <- train(FEMIN_MARGIN ~ white + black + indigenous + asian + pacific + mixed + hispanic + no_school + under_hs + hs_nodiploma + hs + somecollege + bachelor + postbachelor + u15k + u30k + u60k + u100k + u150k + u200k + o200k + median_age + urban + EVANRATE_2020 + TOTRATE_2020 + BPRTRATE_2020 + MPRTRATE_2020 + CATHRATE_2020 + ORTHRATE_2020 + LDSRATE_2020, trControl=fitControl, method="rf", data=state_dem_na_omit)
+survey_s <- prri_violence %>%
+  filter(METRO==0)
+survey_m <- prri_violence %>%
+  filter(METRO==1)
+model_input <- bind_rows(left_join(state_demographic, survey_s, by=join_by("NAME" == "State")), left_join(metro_demographic, survey_m, by=join_by(GEOID == IFMETRO_ID))) %>%
+  dplyr::select(-State, -IFMETRO_ID, -FIPS) %>%
+  na.omit()
 
-model_violence <- train(VIOLENCE_MARGIN ~ white + black + indigenous + asian + pacific + mixed + hispanic + no_school + under_hs + hs_nodiploma + hs + somecollege + bachelor + postbachelor + u15k + u30k + u60k + u100k + u150k + u200k + o200k + median_age + urban + EVANRATE_2020 + TOTRATE_2020 + BPRTRATE_2020 + MPRTRATE_2020 + CATHRATE_2020 + ORTHRATE_2020 + LDSRATE_2020, trControl=fitControl, method="rf", data=state_dem_na_omit)
+model_violence <- train(VIOLENCE_MARGIN ~ white + black + indigenous + asian + pacific + mixed + hispanic + no_school + under_hs + hs_nodiploma + hs + somecollege + bachelor + postbachelor + u15k + u30k + u60k + u100k + u150k + u200k + o200k + median_age + urban + EVANRATE_2020 + TOTRATE_2020 + BPRTRATE_2020 + MPRTRATE_2020 + CATHRATE_2020 + ORTHRATE_2020 + LDSRATE_2020 + TOTJUDRATE_2020 + MSLMRATE_2020 + HINTRATE_2020 + TOTBUDRATE_2020, trControl=fitControl, method="rf", data=model_input, tuneGrid=grid)
+
+prri_immigration <- prri_immigration %>%
+  mutate(IMMIGR_MARGIN = AGREE_IMMIGR - DISAGREE_IMMIGR)
+survey_s <- prri_immigration %>%
+  filter(METRO==0)
+survey_m <- prri_immigration %>%
+  filter(METRO==1)
+model_input <- bind_rows(left_join(state_demographic, survey_s, by=join_by("NAME" == "STATE")), left_join(metro_demographic, survey_m, by=join_by(GEOID == IFMETRO_ID))) %>%
+  dplyr::select(-STATE, -IFMETRO_ID, -FIPS) %>%
+  na.omit()
+
+model_immigration <- train(IMMIGR_MARGIN ~ white + black + indigenous + asian + pacific + mixed + hispanic + no_school + under_hs + hs_nodiploma + hs + somecollege + bachelor + postbachelor + u15k + u30k + u60k + u100k + u150k + u200k + o200k + median_age + urban + EVANRATE_2020 + TOTRATE_2020 + BPRTRATE_2020 + MPRTRATE_2020 + CATHRATE_2020 + ORTHRATE_2020 + LDSRATE_2020 + TOTJUDRATE_2020 + MSLMRATE_2020 + HINTRATE_2020 + TOTBUDRATE_2020, trControl=fitControl, method="rf", data=model_input, tuneGrid=grid)
+
+pew_morality <- pew_morality %>%
+  mutate(MORAL_MARGIN = AGREE_MORAL - DISAGREE_MORAL)
+survey_s <- pew_morality %>%
+  filter(METRO==0)
+survey_m <- pew_morality %>%
+  filter(METRO==1)
+model_input <- bind_rows(left_join(state_demographic, survey_s, by=join_by("NAME" == "STATE")), left_join(metro_demographic, survey_m, by=join_by(GEOID == IFMETRO_ID))) %>%
+  dplyr::select(-STATE, -IFMETRO_ID, -FIPS) %>%
+  na.omit()
+
+model_morality <- train(MORAL_MARGIN ~ white + black + indigenous + asian + pacific + mixed + hispanic + no_school + under_hs + hs_nodiploma + hs + somecollege + bachelor + postbachelor + u15k + u30k + u60k + u100k + u150k + u200k + o200k + median_age + urban + EVANRATE_2020 + TOTRATE_2020 + BPRTRATE_2020 + MPRTRATE_2020 + CATHRATE_2020 + ORTHRATE_2020 + LDSRATE_2020 + TOTJUDRATE_2020 + MSLMRATE_2020 + HINTRATE_2020 + TOTBUDRATE_2020, trControl=fitControl, method="rf", data=model_input, tuneGrid=grid)
+```
+
+# Results
+
+## R-Squared Values
+
+```{r, fig.cap="R-squared values for each model"}
+kable(data.frame(Model=c("model_femin", "model_violence", "model_immigration", "model_morality"), R_squared=c(model_femin$results$Rsquared[sum(model_femin$bestTune)], model_violence$results$Rsquared[sum(model_violence$bestTune)], model_immigration$results$Rsquared[sum(model_immigration$bestTune)], model_morality$results$Rsquared[sum(model_morality$bestTune)])))
 
 ```
 
-# Variable Importance
-```{r}
-#Variable importance for "Society has become too feminine"
-varImp(model_femin)
-#Variable importance for "Political violence can be justified"
-varImp(model_violence)
+The R-squared values for these four random forest models are rather low.
+Across all models, about half of the variance remains unexplained. These
+four models are rather poor.
+
+I have my theories for why this may be the case. Firstly, this model is
+a machine learning model, and machine learning models such as random
+forest do not really account for random effects. I used random forest
+because I am new to complex regression and training, and it is
+accessible through the caret package. If I used a model where I could
+incorporate and control for random effects, like a Bayesian Small Area
+Estimation model, I may have more success. Bayesian models are commonly
+used for prediction of national-level surveys at the state- or county
+level, because of the ability to incorporate random effects (Park, Gelman, & Bafumi, 2004).
+
+Another reason is that I could have used too many variables. Principal
+Component Analysis allows one to distill a dataframe into fewer
+variables that still account for most of the variance.
+
+## Variable Importance
+
+```{r, fig.width=10, fig.height=5, fig.cap="Variable importance for 'Society has become too feminine'"}
+plot(varImp(model_femin))
 ```
 
-# Predicting County-Level RWA
+```{r, fig.width=10, fig.height=5, fig.cap="Variable importance for 'true American patriots may have to resort to violence'"}
+plot(varImp(model_violence))
+```
+
+```{r, fig.width=10, fig.height=5, fig.cap="Variable importance for 'Immigration is poisoning the nation's blood'"}
+plot(varImp(model_immigration))
+```
+
+```{r, fig.width=10, fig.height=5, fig.cap="Variable importance for 'There is an absolute right and wrong'"}
+plot(varImp(model_morality))
+```
+
+In all four models, income and education seem to be the most important
+factors. Random Forest models do not allow one to see whether factors
+have a positive or negative impact on the result, but this can be
+inferred from the maps below. It seems that income is negatively
+correlated with right-wing authoritarianism, with percentage of
+households with incomes above \$200,000 (o200k) consistently being in
+the top 5 most important variables. The exception to this is
+model_morality, where the households with incomes from \$30,000-60,000
+(u60k) and from \$150,000-200,000 (u200k) better predicting perceptions
+of morality. This can be confirmed by looking at the highest-income
+counties in the US, such as suburban DC, New Jersey, and Connecticut.
+
+Education also seems to be negatively correlated with right-wing
+authoritarianism, with the percentage of populations with a bachelor's
+and post-bachelor's degree also having high importance. The only
+exception to this is the model on attitudes for immigration, where the
+population with high school diplomas seems to be a bigger predictor of
+anti-immigrant attitudes. The negative correlation between education and
+right-wing authoritarianism can be again verified by examining the
+counties with the highest population of individuals with
+post-baccalaureate degrees and those with the lowest population.
+
+The relationship between right-wing authoritarianism and education level is well-documented and is strongly negative in the United States (Carnevale et al., 2020) (Feldman, 2021). 
+
+Higher education breaks down simple us-vs-them mindsets, imbuing students with strengthened critical thinking and the ability to see the world from many perspectives. There is a cyclical feedback loop present where those who are more educated gain more economic security, while those with little education and lower incomes struggle to get by in an increasingly unequal world. A life of economic insecurity may cause one to look for scapegoats, and seek comfort in the rigidity presented by right-wing authoritarianism (Feldman, 2021).
+
+Three oddball variables are the Asian population, the Jewish population
+(TOTJUDRATE_2020), and the Buddhist population (TOTBUDRATE_2020). All
+have higher-than-average importance when it comes to predicting
+right-wing authoritarianism. The only exception to this is the model of
+immigration attitudes, where they have average importance. My
+understanding of this is that Jewish and Asian populations in the US
+tend to be located in highly-educated, wealthy suburban counties that
+also tend to be found in more left-leaning states (Asians, by extension
+Buddhism in California, Hawaii, Washington, Jewish people in New York
+and New Jersey). This does not mean that such groups are inherently more
+or less prone to Right-Wing Authoritarianism.
+
+This is perhaps a good example of the ecological fallacy in my model.
+Trends at the national level do not necessarily hold at the level of
+individual demographic groups. The political views of Jewish people in
+the US may be very different between those in suburban Westchester
+County and Hasidic populations in Borough Park. This is the same with
+Asian populations, where a first generation Hmong immigrant in rural
+Wisconsin is under very different socioeconomic conditions than a
+third-generation Chinese-American family in the suburban Bay Area.
+
+Incorporating ecological inference into my models could account for
+this. PRRI and the Pew Research center disaggregate their survey results
+by race/ethnicity, income, and religious identity. Using ecological
+inference to create "states" for smaller minority groups such as with
+100% Jewish population, 100% Native American population, 100% Mormon
+population could prove useful in accounting for the ecological fallacy.
+
+## Predicting County-Level RWA
+
 ```{r}
+#Predicting model onto county-level data
 femin_predict <- predict(model_femin, total_demographic)
 vio_predict <- predict(model_violence, total_demographic)
+immig_predict <- predict(model_immigration, total_demographic)
+mor_predict <- predict(model_morality, total_demographic)
+
+#Binding the prediction outputs with the county dataset
 total_demographic <- cbind(total_demographic, femin_predict)
 total_demographic <- cbind(total_demographic, vio_predict)
+total_demographic <- cbind(total_demographic, immig_predict)
+total_demographic <- cbind(total_demographic, mor_predict)
 ```
 
+## Maps of Model Outputs
 
 ```{r, fig.width=12, fig.height=6, fig.cap="Predicted Margin, Society has Become too Feminine, Agree - Disagree"}
 color_fem <- colorNumeric(palette="viridis", domain=total_demographic$femin_predict)
@@ -388,9 +729,8 @@ leaflet() %>%
   addTiles() %>%
   setView(lng=-99, lat=39.5, zoom = 3) %>%
   addPolygons(data=total_demographic, color=~color_fem(total_demographic$femin_predict), stroke=FALSE, fillOpacity=0.9, popup=~paste("County:", NAME, "\n Margin:", round(femin_predict, 2))) %>%
-  addLegend(data=total_demographic, position="bottomright", pal = color_fem, values = ~femin_predict, title="Belief that Society has Become too Feminine")
+  addLegend(data=total_demographic, position="bottomright", pal = color_fem, values = ~femin_predict, title="Margin, Agree - Disagree")
 ```
-
 
 ```{r, fig.width=12, fig.height=6, fig.cap="Predicted Margin, Political Violence Can be Justified, Agree - Disagree"}
 color_vio <- colorNumeric(palette="viridis", domain=total_demographic$vio_predict)
@@ -398,36 +738,84 @@ leaflet() %>%
   addTiles() %>%
   setView(lng=-99, lat=39.5, zoom = 3) %>%
   addPolygons(data=total_demographic, color=~color_vio(total_demographic$vio_predict), stroke=FALSE, fillOpacity=0.9, popup=~paste("County:", NAME, "\n Margin:", round(vio_predict, 2))) %>%
-  addLegend(data=total_demographic, position="bottomright", pal = color_vio, values = ~vio_predict, title="Belief that Violence is Sometimes Justified")
+  addLegend(data=total_demographic, position="bottomright", pal = color_vio, values = ~vio_predict, title="Margin, Agree - Disagree")
 ```
-# Results
 
-\[\~200 words\]
-
-Tables and figures (maps and other graphics) are carefully planned to convey the results of your analysis. Intense exploration and evidence of many trials and failures. The author looked at the data in many different ways before coming to the final presentation of the data.
-
-Show tables, plots, etc. and describe them.
-
-```{r, fig.width=6, fig.height=3, fig.cap="Map of completely random data"}
-
+```{r, fig.width=12, fig.height=6, fig.cap="Predicted Margin, Illegal Immigrants Poison the Nation's Blood, Agree - Disagree"}
+color_immig <- colorNumeric(palette="viridis", domain=total_demographic$immig_predict)
+leaflet() %>%
+  addTiles() %>%
+  setView(lng=-99, lat=39.5, zoom = 3) %>%
+  addPolygons(data=total_demographic, color=~color_immig(total_demographic$immig_predict), stroke=FALSE, fillOpacity=0.9, popup=~paste("County:", NAME, "\n Margin:", round(immig_predict, 2))) %>%
+  addLegend(data=total_demographic, position="bottomright", pal = color_immig, values = ~immig_predict, title="Margin, Agree - Disagree")
 ```
+
+```{r, fig.width=12, fig.height=6, fig.cap="There is an absolute right and wrong, Agree - Disagree"}
+color_mor <- colorNumeric(palette="viridis", domain=total_demographic$mor_predict)
+leaflet() %>%
+  addTiles() %>%
+  setView(lng=-99, lat=39.5, zoom = 3) %>%
+  addPolygons(data=total_demographic, color=~color_mor(total_demographic$mor_predict), stroke=FALSE, fillOpacity=0.9, popup=~paste("County:", NAME, "\n Margin:", round(mor_predict, 2))) %>%
+  addLegend(data=total_demographic, position="bottomright", pal = color_mor, values = ~mor_predict, title="Margin, Agree - Disagree")
+```
+
+## Creating a Unified RWA Index
 
 ```{r}
+#Normalizing the standard deviations
+total_demographic$femin_predict <- total_demographic$femin_predict/(sd(total_demographic$femin_predict)/5)
+total_demographic$vio_predict <- total_demographic$vio_predict/(sd(total_demographic$vio_predict)/5)
+total_demographic$immig_predict <- total_demographic$immig_predict/(sd(total_demographic$immig_predict)/5)
+total_demographic$mor_predict <- total_demographic$mor_predict/(sd(total_demographic$mor_predict)/5)
 
+#Making it so that the means for the county predictions are zero when weighting for population
+total_demographic$femin_predict <- total_demographic$femin_predict - weighted.mean(total_demographic$femin_predict, total_demographic$total_pop)
+
+total_demographic$vio_predict <- total_demographic$vio_predict - weighted.mean(total_demographic$vio_predict, total_demographic$total_pop)
+
+total_demographic$immig_predict <- total_demographic$immig_predict - weighted.mean(total_demographic$immig_predict, total_demographic$total_pop)
+
+total_demographic$mor_predict <- total_demographic$mor_predict - weighted.mean(total_demographic$mor_predict, total_demographic$total_pop)
+
+#This allows us to make a unified RWA index. It is between 0 and 1
+total_demographic$rwa_index <- ((((total_demographic$femin_predict + total_demographic$vio_predict + total_demographic$immig_predict + total_demographic$mor_predict)/4)+15.5)/31)
 ```
 
-### Dygraphs Example
-
-```{r}
-
+```{r, fig.width=12, fig.height=6, fig.cap="Predicted RWA Index"}
+color_rwa <- colorNumeric(palette="viridis", domain=total_demographic$rwa_index)
+leaflet() %>%
+  addTiles() %>%
+  setView(lng=-99, lat=39.5, zoom = 3) %>%
+  addPolygons(data=total_demographic, color=~color_rwa(total_demographic$rwa_index), stroke=FALSE, fillOpacity=0.9, popup=~paste("County:", NAME, "\n Value:", round(rwa_index, 3))) %>%
+  addLegend(data=total_demographic, position="bottomright", pal = color_rwa, values = ~rwa_index, title="Index Value")
 ```
+
+As expected by the variable importance, counties with low modeled RWA tend to be those with high average education levels and incomes.
 
 # Conclusions
+This project has taught me that quantification of abstract social phenomena is more difficult than meets the eye. There is lots more work that must be done to properly quantify right-wing authoritarianism on the county level.
 
-\[\~200 words\]
+While my model indicates that income and education are both negatively correlated with right-wing authoritarianism, there is lots more work that must be done to properly refine the model in the future. A different modeling method, like Small Area Estimation, may yield better results. Further additional work could be done to reduce ecological bias and to refine socioeconomic input variables.
 
-Clear summary adequately describing the results and putting them in context. Discussion of further questions and ways to continue investigation.
+Right-Wing Authoritarianism is currently a very relevant topic in US Politics, and it can be argued that it is pervasive in the 2020s, regardless of a county's RWA index score. 
 
 # References
+Altemeyer, R. (2006). The Authoritarians. (self-published), 1 Jan.,  https://theauthoritarians.org/wp-content/uploads/2024/08/TheAuthoritarians.pdf. 
 
-All sources are cited in a c onsistent manner
+Bizumic, B. and Duckitt, J. (2018). Investigating Right Wing Authoritarianism With a Very Short Authoritarianism Scale. *Journal of Social and Political Psychology*, 6(1), 25 Apr., pp. 129-150. https://doi.org/10.5964/jspp.v6i1.835.
+
+Carnevale, A.P. et al (2020). The Role of Education in Taming Authoritarian Attitudes. *Georgetown University Center on Education and the Workforce*. Washington, D.C. https://cew.georgetown.edu/wp-content/uploads/The-Role-of-Education-in-Taming-Authoritarian-Attitudes-Full-Report.pdf.
+
+Feldman, S. (2021). Authoritarianism, Education, and Support for Right-Wing Populism. In Forgas, J.P., Crano, W.D., and Fielder, K. [Eds.], The Psychology of Populism: The Tribal Challenge to Liberal Democracy. Routledge. https://doi.org/10.4324/9781003057680.
+
+GeeksforGeeks (2025). Building a RandomForest with Caret. *GeeksforGeeks.org*, Sanchhaya Private Education Ltd, 23 Jul., https://www.geeksforgeeks.org/machine-learning/building-a-randomforest-with-caret/. 
+
+Pew Research Center (2025). 2023-24 US Religious Landscape Study Interactive Database. *Pew Research Center*, https://doi.org/10.58094/3zs9-jc14.
+
+U.S. Census Bureau. (2022). 2017-2021 American Community Survey 5-year Estimates. Accessed through Tidycensus.
+
+Park, D. K., Gelman, A., & Bafumi, J. (2004). Bayesian multilevel estimation with poststratification: state-level estimates from national polls. Political Analysis, 12(4), 375-385. 
+
+Public Religion Research Institute (2024). American Values Atlas. *PRRI.org*, https://ava.prri.org/. 
+
+Schroeder, J. et al. (2025). IPUMS National Historical Geographic Information System: Version 20.0 [dataset]. *IPUMS*. Minneapolis, MN. http://doi.org/10.18128/D050.V20.0
